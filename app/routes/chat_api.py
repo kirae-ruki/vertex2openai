@@ -30,38 +30,63 @@ router = APIRouter()
 async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api_key: str = Depends(get_api_key)):
     try:
         credential_manager_instance = fastapi_request.app.state.credential_manager
-        OPENAI_DIRECT_SUFFIX = "-openai"
+OPENAI_DIRECT_SUFFIX = "-openai"
         OPENAI_SEARCH_SUFFIX = "-openaisearch"
         EXPERIMENTAL_MARKER = "-exp-"
         PAY_PREFIX = "[PAY]"
-        EXPRESS_PREFIX = "[EXPRESS] " # Note the space for easier stripping
+        EXPRESS_PREFIX = "[EXPRESS] " 
         
-        # Model validation based on a predefined list has been removed as per user request.
-        # The application will now attempt to use any provided model string.
-        # We still need to fetch vertex_express_model_ids for the Express Mode logic.
-        # vertex_express_model_ids = await get_vertex_express_models() # We'll use the prefix now
+        base_model_name = request.model 
+        
+        is_express_model_request = False
+        if base_model_name.startswith(EXPRESS_PREFIX):
+            is_express_model_request = True
+            base_model_name = base_model_name[len(EXPRESS_PREFIX):]
 
-        # Updated logic for is_openai_direct_model
+        if base_model_name.startswith(PAY_PREFIX):
+            base_model_name = base_model_name[len(PAY_PREFIX):]
+
         is_openai_direct_model = False
         is_openai_search_model = False
-        if request.model.endswith(OPENAI_DIRECT_SUFFIX) or request.model.endswith(OPENAI_SEARCH_SUFFIX):
-            is_openai_search_model = request.model.endswith(OPENAI_SEARCH_SUFFIX)
-            suffix_to_remove = OPENAI_SEARCH_SUFFIX if is_openai_search_model else OPENAI_DIRECT_SUFFIX
-            temp_name_for_marker_check = request.model[:-len(suffix_to_remove)]
-            # An OpenAI model can be prefixed with PAY, EXPRESS, or contain EXP
-            if temp_name_for_marker_check.startswith(PAY_PREFIX) or \
-               temp_name_for_marker_check.startswith(EXPRESS_PREFIX) or \
-               EXPERIMENTAL_MARKER in temp_name_for_marker_check:
-                is_openai_direct_model = True
-        is_auto_model = request.model.endswith("-auto")
-        is_grounded_search = request.model.endswith("-search")
-        is_encrypted_model = request.model.endswith("-encrypt")
-        is_encrypted_full_model = request.model.endswith("-encrypt-full")
-        is_nothinking_model = request.model.endswith("-nothinking")
-        is_max_thinking_model = request.model.endswith("-max")
-        is_2k_image_model = request.model.endswith("-2k")
-        is_4k_image_model = request.model.endswith("-4k")
-        base_model_name = request.model # Start with the full model name
+        
+        if base_model_name.endswith(OPENAI_SEARCH_SUFFIX):
+            is_openai_search_model = True
+            is_openai_direct_model = True
+            base_model_name = base_model_name[:-len(OPENAI_SEARCH_SUFFIX)]
+        elif base_model_name.endswith(OPENAI_DIRECT_SUFFIX):
+            is_openai_direct_model = True
+            base_model_name = base_model_name[:-len(OPENAI_DIRECT_SUFFIX)]
+            
+        if EXPERIMENTAL_MARKER in base_model_name:
+            is_openai_direct_model = True
+
+        is_auto_model = base_model_name.endswith("-auto")
+        if is_auto_model: base_model_name = base_model_name[:-len("-auto")]
+
+        is_grounded_search = base_model_name.endswith("-search")
+        if is_grounded_search: base_model_name = base_model_name[:-len("-search")]
+
+        is_encrypted_full_model = base_model_name.endswith("-encrypt-full")
+        if is_encrypted_full_model: base_model_name = base_model_name[:-len("-encrypt-full")]
+
+        is_encrypted_model = base_model_name.endswith("-encrypt")
+        if is_encrypted_model: base_model_name = base_model_name[:-len("-encrypt")]
+
+        is_nothinking_model = base_model_name.endswith("-nothinking")
+        if is_nothinking_model: base_model_name = base_model_name[:-len("-nothinking")]
+
+        is_max_thinking_model = base_model_name.endswith("-max")
+        if is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
+
+        # ==========================================
+        # 核心：智能识别 image 并强制拦截
+        # ==========================================
+        is_image_model = "image" in request.model.lower()
+        if is_image_model:
+            # 清洗名字，把 -image 或 _image 剥离，还原本体模型名
+            base_model_name = base_model_name.replace("-image", "").replace("_image", "")
+            # 生图请求绝对不能走 OpenAI 直连，强制切回 SDK 管道
+            is_openai_direct_model = False
 
         # Determine base_model_name by stripping known prefixes and suffixes
         # Order of stripping: Prefixes first, then suffixes.
