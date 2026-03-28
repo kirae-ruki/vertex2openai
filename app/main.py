@@ -1,3 +1,6 @@
+import os
+import time
+import httpx
 import asyncio
 import secrets
 from fastapi import FastAPI, Depends, Request, HTTPException
@@ -212,6 +215,32 @@ async def stream_logs_endpoint(request: Request, username: str = Depends(verify_
 # Include API routers
 app.include_router(models_api.router) 
 app.include_router(chat_api.router)
+
+# ==========================================
+# 神性防休眠引擎 (Render Keep-Alive)
+# ==========================================
+@app.get("/ping")
+async def ping_keepalive():
+    return {"status": "alive", "time": time.strftime("%H:%M:%S")}
+
+async def render_keep_alive_task():
+    # 自动捕获 Render 分配的公网地址
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url:
+        print("⚠️ [Keep-Alive] 未检测到 RENDER_EXTERNAL_URL，心跳可能无法穿透外部网关欺骗 Render。")
+        url = "http://127.0.0.1:10000"
+        
+    ping_url = f"{url.rstrip('/')}/ping"
+    
+    async with httpx.AsyncClient() as client:
+        while True:
+            await asyncio.sleep(600)  # 严格沉睡 10 分钟 (600秒)
+            try:
+                print(f"⏰ [Keep-Alive] 触发防休眠心跳，正在敲击网关: {ping_url} ...")
+                await client.get(ping_url, timeout=10.0)
+            except Exception as e:
+                print(f"⚠️ [Keep-Alive] 心跳微弱，未收到回音: {e}")
+
 
 @app.on_event("startup")
 async def startup_event():
