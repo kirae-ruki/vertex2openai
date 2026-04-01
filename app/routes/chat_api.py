@@ -85,9 +85,9 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         # ==========================================
         is_image_model = "image" in request.model.lower()
         if is_image_model:
-            base_model_name = base_model_name.replace("-image", "").replace("_image", "")
+            # 删掉下面这行，保留原始的生图模型名称！
+            # base_model_name = base_model_name.replace("-image", "").replace("_image", "") 
             is_openai_direct_model = False
-
         gen_config_dict = create_generation_config(request)
 
         is_thinking_capable = "gemini-2.5" in base_model_name or "gemini-3" in base_model_name
