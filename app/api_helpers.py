@@ -160,11 +160,11 @@ def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
                         system_texts.append(part.get('text', ''))
                     elif hasattr(part, 'text') and isinstance(part.text, str):
                         system_texts.append(part.text)
-    if system_texts:
+    if system_texts and "image" not in request.model.lower():
         config["system_instruction"] = "\n".join(system_texts)
     
     if "image" in request.model.lower():
-        config["response_modalities"] = ["TEXT", "IMAGE"]
+        config["response_modalities"] = ["IMAGE"]
     
     if request.temperature is not None: config["temperature"] = request.temperature
     if request.max_tokens is not None: config["max_output_tokens"] = request.max_tokens
@@ -174,20 +174,32 @@ def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
     if request.seed is not None: config["seed"] = request.seed
     if request.n is not None: config["candidate_count"] = request.n
     
-    safety_threshold = "BLOCK_NONE"
-    config["safety_settings"] = [
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_UNSPECIFIED", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_IMAGE_HATE", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_IMAGE_HARASSMENT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", threshold=safety_threshold),
-            types.SafetySetting(category="HARM_CATEGORY_JAILBREAK", threshold=safety_threshold)
-    ]
+    # 启用绝对断电阈值与严重性降级方法
+    safety_threshold = "OFF"
+    safety_method = "SEVERITY"
+    
+    if "image" in request.model.lower():
+        config["safety_settings"] = [
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold=safety_threshold, method=safety_method)
+        ]
+    else:
+        # 为文本模型保留完整分类，同样实施最高级别的免审覆盖
+        config["safety_settings"] = [
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_UNSPECIFIED", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_IMAGE_HATE", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_IMAGE_HARASSMENT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
+            types.SafetySetting(category="HARM_CATEGORY_JAILBREAK", threshold=safety_threshold, method=safety_method)
+        ]
 
     function_declarations = []
     if request.tools:
