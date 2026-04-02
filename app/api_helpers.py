@@ -303,12 +303,20 @@ async def _chunk_openai_response_dict_for_sse(
 
             content_to_chunk = actual_content if actual_content is not None else ""
             if actual_content is not None:
-                chunk_size = max(1, math.ceil(len(content_to_chunk) / 10)) if content_to_chunk else 1
+                
+                # --- 生图护盾：拦截 Base64 图片，拒绝切片 ---
+                if "![Image](data:image/" in content_to_chunk:
+                    chunk_size = len(content_to_chunk) # 一次性全量发送，拯救前端解析器
+                else:
+                    chunk_size = max(1, math.ceil(len(content_to_chunk) / 10)) if content_to_chunk else 1
+                # --------------------------------------------------------
+
                 if not content_to_chunk and not reasoning_content : 
                     yield f"data: {json.dumps({'id': resp_id, 'object': 'chat.completion.chunk', 'created': created_time, 'model': model_name, 'choices': [{'index': choice_idx, 'delta': {'content': ''}, 'finish_reason': None}]})}\n\n"
                 else:
                     for i in range(0, len(content_to_chunk), chunk_size):
                         yield f"data: {json.dumps({'id': resp_id, 'object': 'chat.completion.chunk', 'created': created_time, 'model': model_name, 'choices': [{'index': choice_idx, 'delta': {'content': content_to_chunk[i:i+chunk_size]}, 'finish_reason': None}]})}\n\n"
+                        # 图片单次发送后无需睡眠，直接跳过
                         if len(content_to_chunk) > chunk_size: await asyncio.sleep(0.01)
         
         yield f"data: {json.dumps({'id': resp_id, 'object': 'chat.completion.chunk', 'created': created_time, 'model': model_name, 'choices': [{'index': choice_idx, 'delta': {}, 'finish_reason': final_finish_reason}]})}\n\n"
