@@ -174,20 +174,12 @@ def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
     if request.seed is not None: config["seed"] = request.seed
     if request.n is not None: config["candidate_count"] = request.n
     
-    # 启用绝对断电阈值与严重性降级方法
-    safety_threshold = "OFF"
-    safety_method = "SEVERITY"
+    # 设定高门槛拦截与概率评估法
+    safety_threshold = "BLOCK_ONLY_HIGH"
+    safety_method = "PROBABILITY"
     
-    if "image" in request.model.lower():
-        config["safety_settings"] = [
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=safety_threshold, method=safety_method),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=safety_threshold, method=safety_method),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold=safety_threshold, method=safety_method)
-        ]
-    else:
-        # 为文本模型保留完整分类，同样实施最高级别的免审覆盖
-        config["safety_settings"] = [
+    config["safety_settings"] = [
+            # 必须完整保留 11 个类别，防止系统静默重置图像安全阈值
             types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=safety_threshold, method=safety_method),
             types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=safety_threshold, method=safety_method),
             types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
@@ -199,7 +191,7 @@ def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
             types.SafetySetting(category="HARM_CATEGORY_IMAGE_HARASSMENT", threshold=safety_threshold, method=safety_method),
             types.SafetySetting(category="HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", threshold=safety_threshold, method=safety_method),
             types.SafetySetting(category="HARM_CATEGORY_JAILBREAK", threshold=safety_threshold, method=safety_method)
-        ]
+    ]
 
     function_declarations = []
     if request.tools:
