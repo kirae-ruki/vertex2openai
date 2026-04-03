@@ -130,7 +130,8 @@ def create_gemini_prompt(messages: List[OpenAIMessage]) -> List[types.Content]:
                 if isinstance(message.content, str):
                     image_parts, clean_text = _extract_markdown_images_to_parts(message.content)
                     if clean_text: parts.append(types.Part.from_text(text=clean_text))
-                    parts.extend(image_parts)
+                    # 删除或注释掉下面这行！绝对不能把历史图片塞进 parts 里！
+                    # parts.extend(image_parts)
         else: 
             if message.content is None: continue
             
@@ -142,7 +143,15 @@ def create_gemini_prompt(messages: List[OpenAIMessage]) -> List[types.Content]:
             if isinstance(message.content, str):
                 image_parts, clean_text = _extract_markdown_images_to_parts(message.content)
                 if clean_text: parts.append(types.Part.from_text(text=clean_text))
-                parts.extend(image_parts)
+                
+                # --- 本小姐的净化结界 1 ---
+                if current_gemini_role != "model":
+                    parts.extend(image_parts) # 用户发的图片正常上传以供分析
+                elif image_parts:
+                    # AI 发的图片直接拦截，只留占位符
+                    parts.append(types.Part.from_text(text="[图片已省略 / Image omitted]"))
+                # -------------------------
+
             elif isinstance(message.content, list):
                 for part_item in message.content:
                     if isinstance(part_item, dict):
@@ -150,24 +159,35 @@ def create_gemini_prompt(messages: List[OpenAIMessage]) -> List[types.Content]:
                             text_content = part_item.get('text', '\n')
                             image_parts, clean_text = _extract_markdown_images_to_parts(text_content)
                             if clean_text: parts.append(types.Part.from_text(text=clean_text))
-                            parts.extend(image_parts)
+                            
+                            # --- 本小姐的净化结界 2 ---
+                            if current_gemini_role != "model":
+                                parts.extend(image_parts)
+                            elif image_parts:
+                                parts.append(types.Part.from_text(text="[图片已省略 / Image omitted]"))
+                            # -------------------------
+
                         elif part_item.get('type') == 'image_url':
-                            image_url = part_item.get('image_url', {}).get('url', '')
-                            if image_url.startswith('data:'):
-                                mime_match = re.match(r'data:([^;]+);base64,(.+)', image_url)
-                                if mime_match:
-                                    mime_type, b64_data = mime_match.groups()
-                                    parts.append(types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type))
-                            # [新增]: 补全常规公网 HTTP 图片拉取逻辑
-                            elif image_url.startswith('http'):
-                                try:
-                                    req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
-                                    with urllib.request.urlopen(req, timeout=10) as response:
-                                        img_bytes = response.read()
-                                        mime_type = response.headers.get_content_type()
-                                        parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
-                                except Exception as e:
-                                    print(f"Warning: Failed to fetch remote image {image_url}: {e}")
+                            # --- 本小姐的净化结界 3 ---
+                            if current_gemini_role != "model":
+                                image_url = part_item.get('image_url', {}).get('url', '')
+                                if image_url.startswith('data:'):
+                                    mime_match = re.match(r'data:([^;]+);base64,(.+)', image_url)
+                                    if mime_match:
+                                        mime_type, b64_data = mime_match.groups()
+                                        parts.append(types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type))
+                                elif image_url.startswith('http'):
+                                    try:
+                                        req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+                                        with urllib.request.urlopen(req, timeout=10) as response:
+                                            img_bytes = response.read()
+                                            mime_type = response.headers.get_content_type()
+                                            parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
+                                    except Exception as e:
+                                        print(f"Warning: Failed to fetch remote image {image_url}: {e}")
+                            else:
+                                parts.append(types.Part.from_text(text="[图片已省略 / Image omitted]"))
+                            # -------------------------
                     elif hasattr(part_item, 'text'):
                         parts.append(types.Part.from_text(text=part_item.text))
 
