@@ -379,6 +379,13 @@ async def gemini_fake_stream_generator(
 
     except asyncio.CancelledError:
         print(f"INFO: Client disconnected during Fake Stream (Gemini: {request_obj.model}). Cleaning up.")
+        
+        # === 加入本小姐的协程斩杀剑 ===
+        if 'api_call_task' in locals() and not api_call_task.done():
+            api_call_task.cancel()
+            print("INFO: 成功斩杀后台挂起的 Gemini API 请求！防止算力泄漏。")
+        # =============================
+        
         raise
     except Exception as e_outer_gemini:
         err_msg_detail = f"Error in gemini_fake_stream_generator (model: '{request_obj.model}'): {type(e_outer_gemini).__name__} - {str(e_outer_gemini)}"
@@ -456,6 +463,13 @@ async def openai_fake_stream_generator(
             
     except asyncio.CancelledError:
         print(f"INFO: Client disconnected during Fake Stream (OpenAI: {request_obj.model}). Cleaning up.")
+        
+        # === 加入本小姐的协程斩杀剑 ===
+        if 'api_call_task' in locals() and not api_call_task.done():
+            api_call_task.cancel()
+            print("INFO: 成功斩杀后台挂起的 OpenAI Direct API 请求！防止算力泄漏。")
+        # =============================
+        
         raise
     except Exception as e_outer: 
         err_msg_detail = f"Error in openai_fake_stream_generator (model: '{request_obj.model}'): {type(e_outer).__name__} - {str(e_outer)}"
