@@ -1,45 +1,49 @@
 import os
+from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Default password if not set in environment
-DEFAULT_PASSWORD = "123456"
+class AppSettings(BaseSettings):
+    API_KEY: str = "123456"
+    HUGGINGFACE: bool = False
+    HUGGINGFACE_API_KEY: str = ""
+    CREDENTIALS_DIR: str = "/app/credentials"
+    GOOGLE_CREDENTIALS_JSON: Optional[str] = None
+    VERTEX_EXPRESS_API_KEY: Optional[str] = None
+    FAKE_STREAMING: bool = False
+    FAKE_STREAMING_INTERVAL: float = 1.0
+    MODELS_CONFIG_URL: str = "https://raw.githubusercontent.com/bad-woman/vertex2openai/main/vertexModels.json"
+    ROUNDROBIN: bool = False
+    SAFETY_SCORE: bool = False
+    PROXY_URL: Optional[str] = None
+    SSL_CERT_FILE: Optional[str] = None
 
-# Get password from environment variable or use default
-API_KEY = os.environ.get("API_KEY", DEFAULT_PASSWORD)
+    # 自动读取 .env 文件，忽略多余配置
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-# HuggingFace Authentication Settings
-HUGGINGFACE = os.environ.get("HUGGINGFACE", "false").lower() == "true"
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY", "") # Default to empty string, auth logic will verify if HF_MODE is true and this key is needed
+# 实例化配置中心
+_settings = AppSettings()
 
-# Directory for service account credential files
-CREDENTIALS_DIR = os.environ.get("CREDENTIALS_DIR", "/app/credentials")
+# ==========================================
+# 向下兼容：映射回旧变量名，确保其他文件 import 不报错！
+# ==========================================
+API_KEY = _settings.API_KEY
+HUGGINGFACE = _settings.HUGGINGFACE
+HUGGINGFACE_API_KEY = _settings.HUGGINGFACE_API_KEY
+CREDENTIALS_DIR = _settings.CREDENTIALS_DIR
+GOOGLE_CREDENTIALS_JSON_STR = _settings.GOOGLE_CREDENTIALS_JSON
 
-# JSON string for service account credentials (can be one or multiple comma-separated)
-GOOGLE_CREDENTIALS_JSON_STR = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-
-# API Key for Vertex Express Mode
-raw_vertex_keys = os.environ.get("VERTEX_EXPRESS_API_KEY")
+raw_vertex_keys = _settings.VERTEX_EXPRESS_API_KEY
 if raw_vertex_keys:
     VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in raw_vertex_keys.split(',') if key.strip()]
 else:
     VERTEX_EXPRESS_API_KEY_VAL = []
 
-# Fake streaming settings for debugging/testing
-FAKE_STREAMING_ENABLED = os.environ.get("FAKE_STREAMING", "false").lower() == "true"
-FAKE_STREAMING_INTERVAL_SECONDS = float(os.environ.get("FAKE_STREAMING_INTERVAL", "1.0"))
+FAKE_STREAMING_ENABLED = _settings.FAKE_STREAMING
+FAKE_STREAMING_INTERVAL_SECONDS = _settings.FAKE_STREAMING_INTERVAL
+MODELS_CONFIG_URL = _settings.MODELS_CONFIG_URL
+ROUNDROBIN = _settings.ROUNDROBIN
+SAFETY_SCORE = _settings.SAFETY_SCORE
+PROXY_URL = _settings.PROXY_URL
+SSL_CERT_FILE = _settings.SSL_CERT_FILE
 
-# URL for the remote JSON file containing model lists
-MODELS_CONFIG_URL = os.environ.get("MODELS_CONFIG_URL", "https://raw.githubusercontent.com/bad-woman/vertex2openai/main/vertexModels.json")
-
-# Constant for the Vertex reasoning tag
 VERTEX_REASONING_TAG = "vertex_think_tag"
-
-# Round-robin credential selection strategy
-ROUNDROBIN = os.environ.get("ROUNDROBIN", "false").lower() == "true"
-
-# Safety score display setting
-SAFETY_SCORE = os.environ.get("SAFETY_SCORE", "false").lower() == "true"
-# Validation logic moved to app/auth.py
-
-# Proxy settings
-PROXY_URL = os.environ.get("PROXY_URL")
-SSL_CERT_FILE = os.environ.get("SSL_CERT_FILE")
