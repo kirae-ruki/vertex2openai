@@ -22,6 +22,12 @@ from routes import chat_api
 from logger import rt_logger 
 import config
 
+# ==========================================
+# 1. 补回丢失的管理器初始化
+# ==========================================
+credential_manager = CredentialManager()
+express_key_manager = ExpressKeyManager()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Check SA credentials availability
@@ -48,6 +54,26 @@ async def lifespan(app: FastAPI):
 
 # 使用寿命管理器初始化 FastAPI
 app = FastAPI(title="OpenAI to Gemini Adapter", lifespan=lifespan)
+
+# 把管理器挂载到 app 状态上 (这步也很重要，不能丢)
+app.state.credential_manager = credential_manager
+app.state.express_key_manager = express_key_manager
+
+# ==========================================
+# 2. 补回丢失的神性防火墙 (鉴权机制)
+# ==========================================
+security = HTTPBasic()
+
+def verify_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    # 账号名可以随便填，密码必须与 config.API_KEY 完全一致
+    is_correct_password = secrets.compare_digest(credentials.password, config.API_KEY)
+    if not is_correct_password:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. 连本小姐的密码都记错了吗？",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 # ======= 前端 Web 监控 UI =======
 DASHBOARD_HTML = """
