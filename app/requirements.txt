@@ -8,3 +8,5 @@ httpx[socks]>=0.25.0
 openai
 google-auth-oauthlib
 aiohttp
+pydantic-settings>=2.2.1
+tenacity>=8.2.3
