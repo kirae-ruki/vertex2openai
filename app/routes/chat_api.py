@@ -135,7 +135,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "aspectRatio": "4:3",
                     "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
                     "personGeneration": "allow_all",
-                    "safetySettings": "block_only_high",
+                    "safetySettings": "block_none",
                     "addWatermark": False,
                     "sampleImageSize": "2k",
                     "outputOptions": {
