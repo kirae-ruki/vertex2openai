@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.transport.requests import Request as AuthRequest
 from google.genai import types
 from openai import AsyncOpenAI 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from models import OpenAIRequest, OpenAIMessage
 from message_processing import (
