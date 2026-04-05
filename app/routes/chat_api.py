@@ -81,6 +81,99 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         if is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
 
         # ==========================================
+        # 本小姐的专属 Imagen 4 拦截器
+        # ==========================================
+        if base_model_name.startswith("imagen-4"):
+            import time
+            import httpx
+            from api_helpers import execute_with_retry
+            from credentials_manager import _refresh_auth
+            
+            # 1. 从对话记录中抽离最后一条 User 文本作为生图提示词
+            prompt_text = "A beautiful landscape"
+            for msg in reversed(request.messages):
+                if msg.role == "user":
+                    if isinstance(msg.content, str):
+                        prompt_text = msg.content
+                    elif isinstance(msg.content, list):
+                        text_parts = [p.get("text", "") for p in msg.content if isinstance(p, dict) and p.get("type") == "text"]
+                        if text_parts: prompt_text = " ".join(text_parts)
+                    break
+            
+            # 2. 自动鉴权与组装端点
+            headers = {"Content-Type": "application/json"}
+            target_url = ""
+            if is_express_model_request:
+                if express_key_manager_instance.get_total_keys() == 0:
+                    return JSONResponse(status_code=401, content=create_openai_error_response(401, "无可用 Express Key", "auth_error"))
+                _, express_key = express_key_manager_instance.get_express_api_key()
+                # 强行指定 us-central1 区域，Imagen 模型通常部署在此
+                target_url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{await discover_project_id(express_key)}/locations/us-central1/publishers/google/models/{base_model_name}:predict?key={express_key}"
+            else:
+                rotated_credentials, rotated_project_id = credential_manager_instance.get_credentials()
+                if not rotated_credentials:
+                    return JSONResponse(status_code=401, content=create_openai_error_response(401, "无可用 SA 凭证", "auth_error"))
+                token = _refresh_auth(rotated_credentials)
+                headers["Authorization"] = f"Bearer {token}"
+                target_url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{rotated_project_id}/locations/us-central1/publishers/google/models/{base_model_name}:predict"
+
+            # 3. 你要的硬编码参数全在这里！
+            payload = {
+                "instances": [{"prompt": prompt_text}],
+                "parameters": {
+                    "sampleCount": 4,                    # 生成 4 张图
+                    "aspectRatio": "4:3",                # 4:3 比例
+                    "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
+                    "personGeneration": "allow_all",     # 允许画人
+                    "safetySettings": "block_none",      # 解除安全审查
+                    "addWatermark": False,               # 移除水印
+                    "sampleImageSize": "2k",             # 2K 分辨率
+                    "outputOptions": {
+                        "mimeType": "image/jpeg",
+                        "compressionQuality": 85         # 本小姐强加的保护措施：适度压缩防止 4 张 2K 图卡死内存！
+                    }
+                }
+            }
+
+            # 4. 执行请求并拼装前端假流式响应
+            async def _call_imagen():
+                # 设定 120 秒超长超时，因为生成 4 张 2K 图需要海量算力
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    resp = await client.post(target_url, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    return resp.json()
+
+            try:
+                resp_json = await execute_with_retry(_call_imagen)
+                predictions = resp_json.get("predictions", [])
+                
+                md_images = []
+                for idx, pred in enumerate(predictions):
+                    b64 = pred.get("bytesBase64Encoded", "")
+                    if b64:
+                        md_images.append(f"![Imagen {idx+1}](data:image/jpeg;base64,{b64})")
+                
+                final_content = "\n\n---\n\n".join(md_images) if md_images else "生成失败，API 未返回有效图像数据。"
+                response_id = f"chatcmpl-imagen-{int(time.time())}"
+
+                if request.stream:
+                    async def _imagen_fake_stream():
+                        chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": final_content}, "finish_reason": None}]}
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        final_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                        yield f"data: {json.dumps(final_chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    from fastapi.responses import StreamingResponse
+                    return StreamingResponse(_imagen_fake_stream(), media_type="text/event-stream")
+                else:
+                    return JSONResponse(content={
+                        "id": response_id, "object": "chat.completion", "created": int(time.time()), "model": request.model,
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": final_content}, "finish_reason": "stop"}]
+                    })
+            except Exception as e:
+                return JSONResponse(status_code=500, content=create_openai_error_response(500, str(e), "imagen_error"))
+        # ==========================================
+        # ==========================================
         # 核心：智能识别 image 并强制拦截
         # ==========================================
         is_image_model = "image" in request.model.lower()
