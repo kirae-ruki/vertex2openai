@@ -190,6 +190,30 @@ def create_gemini_prompt(messages: List[OpenAIMessage]) -> List[types.Content]:
                             # -------------------------
                     elif hasattr(part_item, 'text'):
                         parts.append(types.Part.from_text(text=part_item.text))
+                    
+                    # --- 本小姐的净化结界 4 (捕获隐身的图片对象) ---
+                    elif hasattr(part_item, 'type') and getattr(part_item, 'type') == 'image_url':
+                        if current_gemini_role != "model":
+                            img_url_data = part_item.image_url
+                            url_str = getattr(img_url_data, 'url', '') if hasattr(img_url_data, 'url') else (img_url_data.get('url', '') if isinstance(img_url_data, dict) else '')
+                            
+                            if url_str.startswith('data:'):
+                                mime_match = re.match(r'data:([^;]+);base64,(.+)', url_str)
+                                if mime_match:
+                                    mime_type, b64_data = mime_match.groups()
+                                    parts.append(types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type))
+                            elif url_str.startswith('http'):
+                                try:
+                                    req = urllib.request.Request(url_str, headers={'User-Agent': 'Mozilla/5.0'})
+                                    with urllib.request.urlopen(req, timeout=10) as response:
+                                        img_bytes = response.read()
+                                        mime_type = response.headers.get_content_type()
+                                        parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
+                                except Exception as e:
+                                    print(f"Warning: Failed to fetch remote image {url_str}: {e}")
+                        else:
+                            parts.append(types.Part.from_text(text="[图片已省略 / Image omitted]"))
+                    # ----------------------------------------------------
 
         if not parts: continue
         raw_gemini_messages.append(types.Content(role=current_gemini_role, parts=parts))
