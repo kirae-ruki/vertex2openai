@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict # Field removed
-from typing import List, Dict, Any, Optional, Union, Literal
+from pydantic import BaseModel, ConfigDict
+from typing import Any, Literal
 
 # Define data models
 class ImageUrl(BaseModel):
@@ -15,28 +15,27 @@ class ContentPartText(BaseModel):
 
 class OpenAIMessage(BaseModel):
     role: str
-    content: Union[str, List[Union[ContentPartText, ContentPartImage, Dict[str, Any]]], None] = None # Allow content to be None for tool calls
-    name: Optional[str] = None  # For tool role, the name of the tool
-    tool_calls: Optional[List[Dict[str, Any]]] = None  # For assistant messages requesting tool calls
-    tool_call_id: Optional[str] = None  # For tool role, the ID of the tool call
+    content: str | list[ContentPartText | ContentPartImage | dict[str, Any]] | None = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
 class OpenAIRequest(BaseModel):
     model: str
-    messages: List[OpenAIMessage]
-    temperature: Optional[float] = 1.0
-    max_tokens: Optional[int] = None
-    top_p: Optional[float] = 1.0
-    top_k: Optional[int] = None
-    stream: Optional[bool] = False
-    stop: Optional[List[str]] = None
-    presence_penalty: Optional[float] = None
-    frequency_penalty: Optional[float] = None
-    seed: Optional[int] = None
-    logprobs: Optional[int] = None
-    response_logprobs: Optional[bool] = None
-    n: Optional[int] = None  # Maps to candidate_count in Vertex AI
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    messages: list[OpenAIMessage]
+    temperature: float | None = 1.0
+    max_tokens: int | None = None
+    top_p: float | None = 1.0
+    top_k: int | None = None
+    stream: bool | None = False
+    stop: list[str] | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    seed: int | None = None
+    logprobs: int | None = None
+    response_logprobs: bool | None = None
+    n: int | None = None 
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
 
-    # Allow extra fields to pass through without causing validation errors
     model_config = ConfigDict(extra='allow')
