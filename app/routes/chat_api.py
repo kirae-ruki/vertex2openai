@@ -135,7 +135,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "aspectRatio": "4:3",
                     "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
                     "personGeneration": "allow_all",
-                    "safetySettings": "block_none",
+                    "safetySettings": "block_only_high",
                     "addWatermark": False,
                     "sampleImageSize": "2k",
                     "outputOptions": {
@@ -158,15 +158,33 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
             try:
                 resp_json = await execute_with_retry(_call_imagen)
                 predictions = resp_json.get("predictions", [])
-                print(f"[Imagen 拦截器] ✅ 生成成功！接收到 {len(predictions)} 张图片的 Base64 数据。正在下发给前端...")
                 
-                md_images = []
-                for idx, pred in enumerate(predictions):
+                # --- 本小姐的增强型结界：物理过滤与有效性清洗 ---
+                valid_b64_images = []
+                filtered_count = 0
+                
+                for pred in predictions:
                     b64 = pred.get("bytesBase64Encoded", "")
-                    if b64:
-                        md_images.append(f"![Imagen {idx+1}](data:image/jpeg;base64,{b64})")
+                    # 真正的 2K 图片 Base64 长度至少几百万，如果小于 100 绝对是被过滤的废弃数据/占位符！
+                    if b64 and isinstance(b64, str) and len(b64) > 100:
+                        valid_b64_images.append(b64)
+                    else:
+                        filtered_count += 1
+                        
+                print(f"[Imagen 拦截器] ✅ 数据清洗完成！总请求对象: {len(predictions)} | 有效成图: {len(valid_b64_images)} | 被安全拦截: {filtered_count}")
                 
-                final_content = "\n\n---\n\n".join(md_images) if md_images else "生成失败，API 未返回有效图像数据。"
+                # 重新独立编号，解决跳号问题
+                md_images = []
+                for idx, b64 in enumerate(valid_b64_images):
+                    md_images.append(f"![Imagen {idx+1}](data:image/jpeg;base64,{b64})")
+                
+                if md_images:
+                    final_content = "\n\n---\n\n".join(md_images)
+                    if filtered_count > 0:
+                        final_content += f"\n\n*(注：本小姐替你向 Google 申请了 4 张图，但其中 {filtered_count} 张因为触碰了安全审查红线被强制拦截没收了，只救回来这些。)*"
+                else:
+                    final_content = "⚠️ **生成失败或被全额拦截**：API 未返回任何有效的图像数据。你的提示词极有可能触碰了 Google Vertex AI 的高等级安全底线（如 NSFW、暴力、特定版权/真实人物等），导致图片被全额抹杀。"
+                # ---------------------------------------------
                 response_id = f"chatcmpl-imagen-{int(time.time())}"
 
                 if request.stream:
