@@ -117,35 +117,34 @@ def create_openai_error_response(status_code: int, message: str, error_type: str
         }
     }
 
-async def execute_with_retry(func, *args, max_retries=20, **kwargs):
-    last_exception = None
-    for attempt in range(max_retries):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            last_exception = e
-            is_retryable = False
-            error_str = str(e).lower()
-            
-            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in [429, 503, 502]:
-                is_retryable = True
-            elif hasattr(e, 'code') and e.code in [429, 503, 502]:
-                is_retryable = True
-            elif "429" in error_str or "503" in error_str or "too many requests" in error_str or "quota" in error_str:
-                is_retryable = True
+def is_retryable_exception(e):
+    error_str = str(e).lower()
+    if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in [429, 503, 502]:
+        return True
+    if hasattr(e, 'code') and e.code in [429, 503, 502]:
+        return True
+    if "429" in error_str or "503" in error_str or "too many requests" in error_str or "quota" in error_str:
+        return True
+    return False
 
-            if is_retryable and attempt < max_retries - 1:
-                wave_index = attempt % 4
-                round_num = (attempt // 4) + 1
-                wait_time = 2 ** wave_index
-                
-                print(f"⚠️ 触发神性护盾 (API {e.__class__.__name__}): 遇到速率限制。正在进行第 {round_num} 轮第 {wave_index + 1} 次重试，等待 {wait_time} 秒...")
-                await asyncio.sleep(wait_time)
-            else:
-                if is_retryable:
-                    print(f"❌ 容错极限到达: 已穷尽 {max_retries} 次重试，额度已彻底枯竭。")
-                raise e
-    raise last_exception
+def log_retry_attempt(retry_state):
+    attempt = retry_state.attempt_number
+    e = retry_state.outcome.exception()
+    print(f"⚠️ 触发神性护盾 (API {e.__class__.__name__}): 遇到速率限制或异常。正在进行第 {attempt} 次自动重试...")
+
+@retry(
+    stop=stop_after_attempt(20),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=log_retry_attempt
+)
+async def execute_with_retry(func, *args, **kwargs):
+    try:
+        return await func(*args, **kwargs)
+    except Exception as e:
+        if not is_retryable_exception(e):
+            raise e # 如果不是429这类可以重试的错误，立刻抛出，中止重试
+        raise # 如果是，抛出给 tenacity 让它进行完美的指数退避重试
     
 def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
     config: Dict[str, Any] = {}
