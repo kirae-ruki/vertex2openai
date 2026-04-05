@@ -125,10 +125,13 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 target_url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{rotated_project_id}/locations/us-central1/publishers/google/models/{base_model_name}:predict"
 
             # 3. 硬编码参数
+            import random # 引入随机魔法
+            
             payload = {
                 "instances": [{"prompt": prompt_text}],
                 "parameters": {
                     "sampleCount": 4,
+                    "seed": random.randint(1, 2147483647),  # 🌟 本小姐强制注入的混沌之种！打破缓存！
                     "aspectRatio": "4:3",
                     "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
                     "personGeneration": "allow_all",
