@@ -29,7 +29,7 @@ class StreamingReasoningProcessor:
         self.close_tag = f"</{tag_name}>"
         self.tag_buffer = ""
         self.inside_tag = False
-        self.reasoning_buffer = ""
+        self._reasoning_chunks = [] # 使用列表来缓存，比字符串拼接性能高
         self.partial_tag_buffer = "" 
 
     def process_chunk(self, content: str) -> tuple[str, str]:
@@ -37,8 +37,10 @@ class StreamingReasoningProcessor:
             content = self.partial_tag_buffer + content
             self.partial_tag_buffer = ""
         self.tag_buffer += content
-        processed_content = ""
-        current_reasoning = ""
+        
+        processed_content_chunks = []
+        current_reasoning_chunks = []
+        
         while self.tag_buffer:
             if not self.inside_tag:
                 open_pos = self.tag_buffer.find(self.open_tag)
@@ -48,17 +50,18 @@ class StreamingReasoningProcessor:
                         if self.tag_buffer[-i:] == self.open_tag[:i]:
                             partial_match = True
                             if len(self.tag_buffer) > i:
-                                processed_content += self.tag_buffer[:-i]
+                                processed_content_chunks.append(self.tag_buffer[:-i])
                                 self.partial_tag_buffer = self.tag_buffer[-i:]
-                            else: self.partial_tag_buffer = self.tag_buffer
+                            else: 
+                                self.partial_tag_buffer = self.tag_buffer
                             self.tag_buffer = ""
                             break
                     if not partial_match:
-                        processed_content += self.tag_buffer
+                        processed_content_chunks.append(self.tag_buffer)
                         self.tag_buffer = ""
                     break
                 else:
-                    processed_content += self.tag_buffer[:open_pos]
+                    processed_content_chunks.append(self.tag_buffer[:open_pos])
                     self.tag_buffer = self.tag_buffer[open_pos + len(self.open_tag):]
                     self.inside_tag = True
             else: 
@@ -70,41 +73,49 @@ class StreamingReasoningProcessor:
                             partial_match = True
                             if len(self.tag_buffer) > i:
                                 new_reasoning = self.tag_buffer[:-i]
-                                self.reasoning_buffer += new_reasoning
-                                if new_reasoning: current_reasoning = new_reasoning
+                                self._reasoning_chunks.append(new_reasoning)
+                                if new_reasoning: current_reasoning_chunks.append(new_reasoning)
                                 self.partial_tag_buffer = self.tag_buffer[-i:]
-                            else: self.partial_tag_buffer = self.tag_buffer
+                            else: 
+                                self.partial_tag_buffer = self.tag_buffer
                             self.tag_buffer = ""
                             break
                     if not partial_match:
                         if self.tag_buffer:
-                            self.reasoning_buffer += self.tag_buffer
-                            current_reasoning = self.tag_buffer
+                            self._reasoning_chunks.append(self.tag_buffer)
+                            current_reasoning_chunks.append(self.tag_buffer)
                             self.tag_buffer = ""
                     break
                 else:
                     final_reasoning_chunk = self.tag_buffer[:close_pos]
-                    self.reasoning_buffer += final_reasoning_chunk
-                    if final_reasoning_chunk: current_reasoning = final_reasoning_chunk
-                    self.reasoning_buffer = "" 
+                    self._reasoning_chunks.append(final_reasoning_chunk)
+                    if final_reasoning_chunk: current_reasoning_chunks.append(final_reasoning_chunk)
+                    
                     self.tag_buffer = self.tag_buffer[close_pos + len(self.close_tag):]
                     self.inside_tag = False
-        return processed_content, current_reasoning
+                    
+        return "".join(processed_content_chunks), "".join(current_reasoning_chunks)
     
     def flush_remaining(self) -> tuple[str, str]:
-        remaining_content, remaining_reasoning = "", ""
+        remaining_content_chunks = []
         if self.partial_tag_buffer:
-            remaining_content += self.partial_tag_buffer
+            remaining_content_chunks.append(self.partial_tag_buffer)
             self.partial_tag_buffer = ""
+            
         if not self.inside_tag:
-            if self.tag_buffer: remaining_content += self.tag_buffer
+            if self.tag_buffer: remaining_content_chunks.append(self.tag_buffer)
         else:
-            if self.reasoning_buffer: remaining_reasoning = self.reasoning_buffer
-            if self.tag_buffer: remaining_content += self.tag_buffer
+            if self.tag_buffer: remaining_content_chunks.append(self.tag_buffer)
             self.inside_tag = False
-        self.tag_buffer, self.reasoning_buffer = "", ""
+            
+        remaining_content = "".join(remaining_content_chunks)
+        remaining_reasoning = "".join(self._reasoning_chunks)
+        
+        self.tag_buffer = ""
+        self._reasoning_chunks.clear()
+        
         return remaining_content, remaining_reasoning
-
+    
 
 def create_openai_error_response(status_code: int, message: str, error_type: str) -> Dict[str, Any]:
     safe_message = re.sub(r'([?&]key=)[^&\s\'"]+', r'\1***HIDDEN_API_KEY***', message)
