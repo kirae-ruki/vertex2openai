@@ -7,7 +7,7 @@ from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
-
+from contextlib import asynccontextmanager
 # 原有的依赖导入，一个都没少！
 from auth import get_api_key
 from credentials_manager import CredentialManager
@@ -22,39 +22,8 @@ from routes import chat_api
 from logger import rt_logger 
 import config
 
-app = FastAPI(title="OpenAI to Gemini Adapter")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-credential_manager = CredentialManager()
-app.state.credential_manager = credential_manager
-
-express_key_manager = ExpressKeyManager()
-app.state.express_key_manager = express_key_manager
-
-# ======= 神性防火墙 (鉴权机制) =======
-security = HTTPBasic()
-
-def verify_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    # 账号名可以随便填，密码必须与 config.py 中的 API_KEY 完全一致
-    is_correct_password = secrets.compare_digest(credentials.password, config.API_KEY)
-    if not is_correct_password:
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized. 连本小姐的密码都记错了吗？",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-# ======= 原汁原味的启动事件 =======
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     # Check SA credentials availability
     sa_credentials_available = await init_vertex_ai(credential_manager)
     sa_count = credential_manager.get_total_credentials() if sa_credentials_available else 0
@@ -62,7 +31,6 @@ async def startup_event():
     # Check Express API keys availability
     express_keys_count = express_key_manager.get_total_keys()
     
-    # 这里的 print 会被 rt_logger 自动捕获并推送到前端！
     print(f"INFO: SA credentials loaded: {sa_count}")
     print(f"INFO: Express API keys loaded: {express_keys_count}")
     print(f"INFO: Total authentication methods available: {(1 if sa_count > 0 else 0) + (1 if express_keys_count > 0 else 0)}")
@@ -75,6 +43,11 @@ async def startup_event():
             print("INFO: No Express API keys found, but SA credentials are available for authentication.")
     else:
         print("ERROR: Failed to initialize any authentication method. Both SA credentials and Express API keys are missing. API will fail.")
+        
+    yield # 应用启动，开始挂起监听
+
+# 使用寿命管理器初始化 FastAPI
+app = FastAPI(title="OpenAI to Gemini Adapter", lifespan=lifespan)
 
 # ======= 前端 Web 监控 UI =======
 DASHBOARD_HTML = """
