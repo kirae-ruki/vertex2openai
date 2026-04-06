@@ -34,16 +34,28 @@ async def list_models(fastapi_request: Request, api_key: str = Depends(get_api_k
         
         # Define all possible suffixes for a given model
         suffixes = [""] # For the base model itself
-        if not base_id.startswith("gemini-2.0"):
-            suffixes.extend(["-search", "-encrypt", "-encrypt-full", "-auto"])
-        if ("gemini-2.5-flash" in base_id or "gemini-2.5-pro" == base_id or "gemini-2.5-pro-preview-06-05" == base_id or "gemini-3-pro" in base_id) and "gemini-2.5-flash-image" not in base_id:
-            suffixes.extend(["-nothinking", "-max"])
-        if ("gemini-3-pro-image") in base_id:
-            suffixes.extend(["-2k", "-4k"]) 
         
-        # Add the openai variant for all models
-        suffixes.append(OPENAI_DIRECT_SUFFIX)
-        suffixes.append(OPENAI_SEARCH_SUFFIX)
+        is_gemini = "gemini" in base_id.lower()
+        
+        if is_gemini:
+            # 只有 Gemini 模型才支持文本加密和 Auto 重试
+            suffixes.extend(["-encrypt", "-encrypt-full", "-auto"])
+            
+            # OpenAI Direct 模式
+            suffixes.append(OPENAI_DIRECT_SUFFIX)
+            
+            # 搜索特性（2.0以下模型基本不支持）
+            if not base_id.startswith("gemini-2.0"):
+                suffixes.extend(["-search", OPENAI_SEARCH_SUFFIX])
+                
+            # 思考特性（排除非 Thinking 的纯视觉或其他模型）
+            if ("gemini-2.5-flash" in base_id or "gemini-2.5-pro" in base_id or "gemini-3-pro" in base_id or "gemini-3.1" in base_id) and "image" not in base_id:
+                suffixes.extend(["-nothinking", "-max"])
+                
+            # 注: 原代码中的 -2k 和 -4k 因为在 chat_api.py 中没有做后缀剥离处理，
+            # 会导致请求时直连报错“模型不存在”，所以本小姐替你把它们都砍掉了，保持列表干净！
+
+        # Imagen 模型 (生图) 自动跳过上面的 if 判断，不添加任何乱七八糟的文本后缀，防止报错
 
         for suffix in suffixes:
             model_id_with_suffix = f"{base_id}{suffix}"
