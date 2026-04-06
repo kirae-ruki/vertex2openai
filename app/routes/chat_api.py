@@ -210,13 +210,34 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
 
                 if request.stream:
                     async def _imagen_fake_stream():
-                        # [ENI 恢复原始流式] 直接把完整 Markdown 塞进去，不让前端因为没闭合的标签发疯！
-                        chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": final_content}, "finish_reason": None}]}
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                        if not md_images:
+                            err_msg = "⚠️ **生成失败**：未获取到有效图像。"
+                            yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': request.model, 'choices': [{'index': 0, 'delta': {'content': err_msg}, 'finish_reason': None}]})}\n\n"
+                        else:
+                            # 【本小姐的终极修复】：以“整张图片”为单位发送，绝对不切碎 Base64 字符串！
+                            for idx, md_img in enumerate(md_images):
+                                if idx > 0:
+                                    # 发送图片之间的分隔符
+                                    sep_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": "\n\n---\n\n"}, "finish_reason": None}]}
+                                    yield f"data: {json.dumps(sep_chunk)}\n\n"
+                                
+                                # 将一整张图作为一个 Chunk 发送，保证前端拿到的永远是合法的、闭合的图片标签
+                                img_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": md_img}, "finish_reason": None}]}
+                                yield f"data: {json.dumps(img_chunk)}\n\n"
+                                
+                                # 【灵魂休眠】：发完一张图，强行让协程休息 0.2 秒。
+                                # 既给网络缓冲区放行，又给前端留出了渲染这张完整图片的喘息时间！
+                                await asyncio.sleep(0.2)
+                            
+                            if filtered_count > 0:
+                                warn_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": f"\n\n*(注：有 {filtered_count} 张图触碰安全红线被没收了)*"}, "finish_reason": None}]}
+                                yield f"data: {json.dumps(warn_chunk)}\n\n"
+
                         final_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
                         yield f"data: {json.dumps(final_chunk)}\n\n"
                         yield "data: [DONE]\n\n"
-                        print("[Imagen 拦截器] 🎉 数据流下发前端完毕！")
+                        print("[Imagen 拦截器] 🎉 整图滴流式下发完毕！前端绝对不会卡了！")
+                        
                     from fastapi.responses import StreamingResponse
                     return StreamingResponse(_imagen_fake_stream(), media_type="text/event-stream")
                 else:
