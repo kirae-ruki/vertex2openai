@@ -116,7 +116,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
                     "aspectRatio": "4:3",
-                    "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
+                    "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
                     "safetySettings": "block_none",
                     "addWatermark": False,
@@ -140,6 +140,18 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
 
             try:
                 resp_json = await execute_with_retry(_call_imagen)
+                
+                # --- 本小姐的灵魂透视镜：打印除了 Base64 之外的所有 API 响应细节 ---
+                import copy
+                transparent_resp = copy.deepcopy(resp_json)
+                if "predictions" in transparent_resp:
+                    for p in transparent_resp["predictions"]:
+                        if "bytesBase64Encoded" in p:
+                            p["bytesBase64Encoded"] = "<Base64 数据过于庞大，已被本小姐物理屏蔽 🛡️>"
+                
+                print(f"\n[Imagen 透视镜] 🔍 Google API 完整返回参数与元数据：\n{json.dumps(transparent_resp, indent=2, ensure_ascii=False)}\n")
+                # -----------------------------------------------------------
+
                 predictions = resp_json.get("predictions", [])
                 
                 valid_b64_images = []
