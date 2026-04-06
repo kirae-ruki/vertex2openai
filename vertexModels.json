@@ -1,13 +1,9 @@
 {
   "vertex_models": [
-    "gemini-3.1-flash-image-preview",
     "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
+    "gemini-3.1-flash-image-preview",
     "gemini-3-pro-image-preview",
-    "gemini-2.5-flash-image",
-    "gemini-2.5-flash-lite-preview-09-2025",
-    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "imagen-4.0-generate-001",
@@ -15,14 +11,10 @@
     "imagen-4.0-fast-generate-001"
   ],
   "vertex_express_models": [
-    "gemini-3.1-flash-image-preview",
     "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
+    "gemini-3.1-flash-image-preview",
     "gemini-3-pro-image-preview",
-    "gemini-2.5-flash-image",
-    "gemini-2.5-flash-lite-preview-09-2025",
-    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "imagen-4.0-generate-001",
