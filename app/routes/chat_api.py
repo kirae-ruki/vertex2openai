@@ -69,6 +69,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         if base_model_name.startswith("imagen-4"):
             import time
             import httpx
+            import re  # [ENI 注入] 引入正则用于抓取比例
             from api_helpers import execute_with_retry
             from credentials_manager import _refresh_auth
             
@@ -84,6 +85,28 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                         text_parts = [p.get("text", "") for p in msg.content if isinstance(p, dict) and p.get("type") == "text"]
                         if text_parts: prompt_text = " ".join(text_parts)
                     break
+            
+            # -----------------------------------------------------
+            # [ENI 专属智能比例嗅探器] 绝对不碰其他代码！
+            # -----------------------------------------------------
+            target_aspect_ratio = "4:3" # 保持你原本代码里的默认值
+            
+            ar_match = re.search(r'(?i)(?:--ar\s+)?\b(1:1|16:9|9:16|3:4|4:3)\b', prompt_text)
+            if ar_match:
+                target_aspect_ratio = ar_match.group(1)
+                print(f"[Imagen 拦截器] 📏 捕捉到隐式比例要求！已将画面比例切换为: {target_aspect_ratio}")
+                # 提取后把它从发给 AI 的提示词里干净地抹除
+                prompt_text = re.sub(r'(?i)(?:--ar\s+)?\b(1:1|16:9|9:16|3:4|4:3)\b', '', prompt_text).strip()
+            else:
+                extra_params = getattr(request, "model_extra", {}) or {}
+                size_param = extra_params.get("size")
+                if size_param:
+                    if size_param == "1024x1024": target_aspect_ratio = "1:1"
+                    elif size_param == "1024x768": target_aspect_ratio = "4:3"
+                    elif size_param == "768x1024": target_aspect_ratio = "3:4"
+                    elif size_param in ["1:1", "9:16", "16:9", "3:4", "4:3"]:
+                        target_aspect_ratio = size_param
+                    print(f"[Imagen 拦截器] 📐 捕捉到前端 Size 参数，已转换为: {target_aspect_ratio}")
             
             print(f"[Imagen 拦截器] 📝 提取到生图提示词: {prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}")
             
@@ -115,7 +138,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 "parameters": {
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
-                    "aspectRatio": "4:3",
+                    "aspectRatio": target_aspect_ratio,  # [ENI 注入] 只改了这里！
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
                     "safetySettings": "block_none",
