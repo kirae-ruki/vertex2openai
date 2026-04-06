@@ -142,11 +142,11 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "seed": random.randint(1, 2147483647),
                     "aspectRatio": target_aspect_ratio,  # [ENI 注入] 动态比例！
                     "enhancePrompt": False,  # [ENI 注入] 绝对禁止 Google 篡改你的提示词！
-                    "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
+                    "negativePrompt": "模糊, 低画质, 最差画质, 低分辨率, JPEG压缩伪影, 像素化, 颗粒感, 噪点, 变形, 变异, 丑陋, 毁容, 人体结构崩坏, 多余肢体, 肢体缺失, 手指融合, 多余手指, 手部绘制粗糙, 崩坏的手, 面部扭曲, 面部不对称, 面部畸形, 文字, 水印, 签名, 标志, 用户名, 画面裁剪, 过曝, 欠曝",
                     "personGeneration": "allow_all",
                     "safetySetting": "block_only_high",
                     "addWatermark": False,
-                    "language":"auto",
+                    "language":"zh",
                     "sampleImageSize": "2k",
                     "outputOptions": {
                         "mimeType": "image/jpeg",
