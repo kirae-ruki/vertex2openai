@@ -87,16 +87,18 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     break
             
             # -----------------------------------------------------
-            # [ENI 专属智能比例嗅探器] 绝对不碰其他代码！
+            # [ENI 专属智能比例嗅探器] 修复中英文冒号，精准提取！
             # -----------------------------------------------------
             target_aspect_ratio = "4:3" # 保持你原本代码里的默认值
             
-            ar_match = re.search(r'(?i)(?:--ar\s+)?\b(1:1|16:9|9:16|3:4|4:3)\b', prompt_text)
+            # 兼容英文半角 ":" 和中文全角 "："
+            ar_match = re.search(r'(?i)(?:--ar\s+)?(1[:：]1|16[:：]9|9[:：]16|3[:：]4|4[:：]3)', prompt_text)
             if ar_match:
-                target_aspect_ratio = ar_match.group(1)
+                raw_ar = ar_match.group(1)
+                target_aspect_ratio = raw_ar.replace("：", ":") # 统一转换成 Google 能认的英文冒号
                 print(f"[Imagen 拦截器] 📏 捕捉到隐式比例要求！已将画面比例切换为: {target_aspect_ratio}")
                 # 提取后把它从发给 AI 的提示词里干净地抹除
-                prompt_text = re.sub(r'(?i)(?:--ar\s+)?\b(1:1|16:9|9:16|3:4|4:3)\b', '', prompt_text).strip()
+                prompt_text = re.sub(r'(?i)(?:--ar\s+)?(1[:：]1|16[:：]9|9[:：]16|3[:：]4|4[:：]3)', '', prompt_text).strip()
             else:
                 extra_params = getattr(request, "model_extra", {}) or {}
                 size_param = extra_params.get("size")
@@ -108,7 +110,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                         target_aspect_ratio = size_param
                     print(f"[Imagen 拦截器] 📐 捕捉到前端 Size 参数，已转换为: {target_aspect_ratio}")
             
-            print(f"[Imagen 拦截器] 📝 提取到生图提示词: {prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}")
+            print(f"[Imagen 拦截器] 📝 最终处理完成的生图提示词: {prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}")
             
             # 2. 自动鉴权与组装端点
             headers = {"Content-Type": "application/json"}
@@ -138,7 +140,8 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 "parameters": {
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
-                    "aspectRatio": target_aspect_ratio,  # [ENI 注入] 只改了这里！
+                    "aspectRatio": target_aspect_ratio,  # [ENI 注入] 动态比例！
+                    "enhancePrompt": False,  # [ENI 注入] 绝对禁止 Google 篡改你的提示词！
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
                     "safetySettings": "block_none",
@@ -150,6 +153,9 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     }
                 }
             }
+
+            # --- [ENI 补回发送端透视镜] 让你在 Docker 里清清楚楚看到发给 Google 的东西！ ---
+            print(f"\n[Imagen 发送透视镜] 🔍 即将发送给 Google 的完整 Payload：\n{json.dumps(payload, indent=2, ensure_ascii=False)}\n")
 
             # 4. 执行请求并拼装前端假流式响应
             async def _call_imagen():
@@ -172,7 +178,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                         if "bytesBase64Encoded" in p:
                             p["bytesBase64Encoded"] = "<Base64 数据过于庞大，已被本小姐物理屏蔽 🛡️>"
                 
-                print(f"\n[Imagen 透视镜] 🔍 Google API 完整返回参数与元数据：\n{json.dumps(transparent_resp, indent=2, ensure_ascii=False)}\n")
+                print(f"\n[Imagen 接收透视镜] 🔍 Google API 完整返回参数与元数据：\n{json.dumps(transparent_resp, indent=2, ensure_ascii=False)}\n")
                 # -----------------------------------------------------------
 
                 predictions = resp_json.get("predictions", [])
@@ -204,6 +210,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
 
                 if request.stream:
                     async def _imagen_fake_stream():
+                        # [ENI 恢复原始流式] 直接把完整 Markdown 塞进去，不让前端因为没闭合的标签发疯！
                         chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": final_content}, "finish_reason": None}]}
                         yield f"data: {json.dumps(chunk)}\n\n"
                         final_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
