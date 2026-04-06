@@ -139,7 +139,6 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
                     "aspectRatio": target_aspect_ratio, # 读入了提取的比例
-                    "enhancePrompt": False,             # 关掉了自动篡改！
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
                     "safetySettings": "block_none",
