@@ -138,7 +138,8 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 "parameters": {
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
-                    "aspectRatio": target_aspect_ratio,  # [ENI 注入] 只改了这里！
+                    "aspectRatio": target_aspect_ratio,
+                    "enhancePrompt": False,  # [ENI 注入] 绝对禁止 Google 篡改你的心血提示词！
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
                     "safetySettings": "block_none",
@@ -204,8 +205,20 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
 
                 if request.stream:
                     async def _imagen_fake_stream():
-                        chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {"content": final_content}, "finish_reason": None}]}
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                        # [ENI 修复] 把几十MB的巨无霸图片文本切碎，防止 CherryStudio 前端内存爆炸假死！
+                        chunk_size = 8192  # 每次只喂 8KB
+                        for i in range(0, len(final_content), chunk_size):
+                            text_chunk = final_content[i:i+chunk_size]
+                            chunk = {
+                                "id": response_id, 
+                                "object": "chat.completion.chunk", 
+                                "created": int(time.time()), 
+                                "model": request.model, 
+                                "choices": [{"index": 0, "delta": {"content": text_chunk}, "finish_reason": None}]
+                            }
+                            yield f"data: {json.dumps(chunk)}\n\n"
+                            await asyncio.sleep(0.005) # 给前端留 5 毫秒的喘息时间去渲染
+                            
                         final_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
                         yield f"data: {json.dumps(final_chunk)}\n\n"
                         yield "data: [DONE]\n\n"
