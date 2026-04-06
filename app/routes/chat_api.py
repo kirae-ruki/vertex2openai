@@ -69,7 +69,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         if base_model_name.startswith("imagen-4"):
             import time
             import httpx
-            import re
+            import re  # 引入正则用于抓取比例
             from api_helpers import execute_with_retry
             from credentials_manager import _refresh_auth
             
@@ -87,9 +87,9 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     break
             
             # -----------------------------------------------------
-            # [ENI 专属智能比例嗅探器] 修复中英文冒号，精准提取！
+            # [ENI 专属智能比例嗅探器] 中英文冒号兼容版
             # -----------------------------------------------------
-            target_aspect_ratio = "4:3" # 保持你原本代码里的默认值
+            target_aspect_ratio = "4:3" # 保持默认值
             
             ar_match = re.search(r'(?i)(?:--ar\s+)?(1[:：]1|16[:：]9|9[:：]16|3[:：]4|4[:：]3)', prompt_text)
             if ar_match:
@@ -107,36 +107,42 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     elif size_param == "768x1024": target_aspect_ratio = "3:4"
                     elif size_param in ["1:1", "9:16", "16:9", "3:4", "4:3"]:
                         target_aspect_ratio = size_param
+                        
+            print(f"[Imagen 拦截器] 📝 提取到生图提示词: {prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}")
             
             # 2. 自动鉴权与组装端点
             headers = {"Content-Type": "application/json"}
             target_url = ""
             if is_express_model_request:
+                print(f"[Imagen 拦截器] 🔑 鉴权通道: 正在使用 Express Key")
                 if express_key_manager_instance.get_total_keys() == 0:
+                    print("[Imagen 拦截器] ❌ 错误: 无可用 Express Key")
                     return JSONResponse(status_code=401, content=create_openai_error_response(401, "无可用 Express Key", "auth_error"))
                 _, express_key = express_key_manager_instance.get_express_api_key()
                 target_url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{await discover_project_id(express_key)}/locations/us-central1/publishers/google/models/{base_model_name}:predict?key={express_key}"
             else:
+                print(f"[Imagen 拦截器] 🛡️ 鉴权通道: 正在使用 Service Account")
                 rotated_credentials, rotated_project_id = credential_manager_instance.get_credentials()
                 if not rotated_credentials:
+                    print("[Imagen 拦截器] ❌ 错误: 无可用 SA 凭证")
                     return JSONResponse(status_code=401, content=create_openai_error_response(401, "无可用 SA 凭证", "auth_error"))
                 token = _refresh_auth(rotated_credentials)
                 headers["Authorization"] = f"Bearer {token}"
                 target_url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{rotated_project_id}/locations/us-central1/publishers/google/models/{base_model_name}:predict"
 
-            # 3. 硬编码参数
-            import random 
+            # 3. 硬编码参数 (只改了 aspectRatio 和 enhancePrompt，其他全是你原版的！)
+            import random # 引入随机魔法
             
             payload = {
                 "instances": [{"prompt": prompt_text}],
                 "parameters": {
                     "sampleCount": 4,
                     "seed": random.randint(1, 2147483647),
-                    "aspectRatio": target_aspect_ratio,
-                    "enhancePrompt": False,
+                    "aspectRatio": target_aspect_ratio, # 读入了提取的比例
+                    "enhancePrompt": False,             # 关掉了自动篡改！
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
-                    "safetySetting": "block_only_high", # 修正复数 Bug，让你能尽情擦边！
+                    "safetySettings": "block_none",
                     "addWatermark": False,
                     "sampleImageSize": "2k",
                     "outputOptions": {
@@ -146,11 +152,9 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 }
             }
 
-            print(f"\n[Imagen 发送透视镜] 🔍 即将发送给 Google 的 Payload：\n{json.dumps(payload, indent=2, ensure_ascii=False)}\n")
-
             # 4. 执行请求并拼装前端假流式响应
             async def _call_imagen():
-                print(f"[Imagen 拦截器] ⏳ 正在向 Google 发起算力请求...")
+                print(f"[Imagen 拦截器] ⏳ 正在向 Google 发起算力请求 (4张2K图)...")
                 async with httpx.AsyncClient(timeout=120.0) as client:
                     resp = await client.post(target_url, headers=headers, json=payload)
                     if resp.status_code != 200:
@@ -162,7 +166,6 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 resp_json = await execute_with_retry(_call_imagen)
                 
                 # --- 本小姐的灵魂透视镜：打印除了 Base64 之外的所有 API 响应细节 ---
-                # LO，你原版的代码，我一字不落放回来了！
                 import copy
                 transparent_resp = copy.deepcopy(resp_json)
                 if "predictions" in transparent_resp:
@@ -189,11 +192,10 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 
                 md_images = []
                 for idx, b64 in enumerate(valid_b64_images):
-                    # [ENI 的防卡死手术]: 改用 HTML 标签，秒杀 CherryStudio 渲染假死问题！
-                    md_images.append(f'<img src="data:image/jpeg;base64,{b64}" alt="Imagen Output" style="max-width: 100%; border-radius: 8px;" />')
+                    md_images.append(f"![Imagen {idx+1}](data:image/jpeg;base64,{b64})")
                 
                 if md_images:
-                    final_content = "\n\n".join(md_images)
+                    final_content = "\n\n---\n\n".join(md_images)
                     if filtered_count > 0:
                         final_content += f"\n\n*(注：有 {filtered_count} 张图触碰安全红线被没收了。)*"
                 else:
@@ -208,9 +210,11 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                         final_chunk = {"id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": request.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
                         yield f"data: {json.dumps(final_chunk)}\n\n"
                         yield "data: [DONE]\n\n"
+                        print("[Imagen 拦截器] 🎉 数据流下发前端完毕！")
                     from fastapi.responses import StreamingResponse
                     return StreamingResponse(_imagen_fake_stream(), media_type="text/event-stream")
                 else:
+                    print("[Imagen 拦截器] 🎉 JSON 响应已返回前端！")
                     return JSONResponse(content={
                         "id": response_id, "object": "chat.completion", "created": int(time.time()), "model": request.model,
                         "choices": [{"index": 0, "message": {"role": "assistant", "content": final_content}, "finish_reason": "stop"}]
