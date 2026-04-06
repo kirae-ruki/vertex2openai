@@ -136,7 +136,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                     "enhancePrompt": False,
                     "negativePrompt": "blurry, low quality, worst quality, low resolution, jpeg artifacts, pixelated, grainy, noise, deformed, mutated, ugly, disfigured, bad anatomy, extra limbs, missing limbs, fused fingers, extra fingers, poorly drawn hands, bad hands, distorted face, asymmetric face, deformed face, text, watermark, signature, logo, username, cropped, overexposed, underexposed",
                     "personGeneration": "allow_all",
-                    "safetySetting": "block_none", # 修正复数 Bug，让你能尽情擦边！
+                    "safetySetting": "block_only_high", # 修正复数 Bug，让你能尽情擦边！
                     "addWatermark": False,
                     "sampleImageSize": "2k",
                     "outputOptions": {
