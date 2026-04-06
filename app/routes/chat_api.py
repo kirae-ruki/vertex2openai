@@ -12,8 +12,6 @@ from models import OpenAIRequest
 from auth import get_api_key
 from message_processing import (
     create_gemini_prompt,
-    create_encrypted_gemini_prompt,
-    create_encrypted_full_gemini_prompt,
     ENCRYPTION_INSTRUCTIONS,
 )
 from api_helpers import (
@@ -62,23 +60,8 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         if EXPERIMENTAL_MARKER in base_model_name:
             is_openai_direct_model = True
 
-        is_auto_model = base_model_name.endswith("-auto")
-        if is_auto_model: base_model_name = base_model_name[:-len("-auto")]
-
         is_grounded_search = base_model_name.endswith("-search")
         if is_grounded_search: base_model_name = base_model_name[:-len("-search")]
-
-        is_encrypted_full_model = base_model_name.endswith("-encrypt-full")
-        if is_encrypted_full_model: base_model_name = base_model_name[:-len("-encrypt-full")]
-
-        is_encrypted_model = base_model_name.endswith("-encrypt")
-        if is_encrypted_model: base_model_name = base_model_name[:-len("-encrypt")]
-
-        is_nothinking_model = base_model_name.endswith("-nothinking")
-        if is_nothinking_model: base_model_name = base_model_name[:-len("-nothinking")]
-
-        is_max_thinking_model = base_model_name.endswith("-max")
-        if is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
 
         # ==========================================
         # 本小姐的专属 Imagen 4 拦截器 (全知视角监控版)
@@ -131,7 +114,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 "instances": [{"prompt": prompt_text}],
                 "parameters": {
                     "sampleCount": 4,
-                    "seed": random.randint(1, 2147483647),  # 🌟 本小姐强制注入的混沌之种！打破缓存！
+                    "seed": random.randint(1, 2147483647),
                     "aspectRatio": "4:3",
                     "negativePrompt": "blurry, deformed, low quality, poorly drawn, distorted anatomy, artifacts, pixelated, bad proportions",
                     "personGeneration": "allow_all",
@@ -147,7 +130,7 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
 
             # 4. 执行请求并拼装前端假流式响应
             async def _call_imagen():
-                print(f"[Imagen 拦截器] ⏳ 正在向 Google 发起极其庞大的算力请求 (4张2K图)，准备承接十几兆的数据流，请耐心等待...")
+                print(f"[Imagen 拦截器] ⏳ 正在向 Google 发起算力请求 (4张2K图)...")
                 async with httpx.AsyncClient(timeout=120.0) as client:
                     resp = await client.post(target_url, headers=headers, json=payload)
                     if resp.status_code != 200:
@@ -159,13 +142,11 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 resp_json = await execute_with_retry(_call_imagen)
                 predictions = resp_json.get("predictions", [])
                 
-                # --- 本小姐的增强型结界：物理过滤与有效性清洗 ---
                 valid_b64_images = []
                 filtered_count = 0
                 
                 for pred in predictions:
                     b64 = pred.get("bytesBase64Encoded", "")
-                    # 真正的 2K 图片 Base64 长度至少几百万，如果小于 100 绝对是被过滤的废弃数据/占位符！
                     if b64 and isinstance(b64, str) and len(b64) > 100:
                         valid_b64_images.append(b64)
                     else:
@@ -173,7 +154,6 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                         
                 print(f"[Imagen 拦截器] ✅ 数据清洗完成！总请求对象: {len(predictions)} | 有效成图: {len(valid_b64_images)} | 被安全拦截: {filtered_count}")
                 
-                # 重新独立编号，解决跳号问题
                 md_images = []
                 for idx, b64 in enumerate(valid_b64_images):
                     md_images.append(f"![Imagen {idx+1}](data:image/jpeg;base64,{b64})")
@@ -181,10 +161,10 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 if md_images:
                     final_content = "\n\n---\n\n".join(md_images)
                     if filtered_count > 0:
-                        final_content += f"\n\n*(注：本小姐替你向 Google 申请了 4 张图，但其中 {filtered_count} 张因为触碰了安全审查红线被强制拦截没收了，只救回来这些。)*"
+                        final_content += f"\n\n*(注：有 {filtered_count} 张图触碰安全红线被没收了。)*"
                 else:
-                    final_content = "⚠️ **生成失败或被全额拦截**：API 未返回任何有效的图像数据。你的提示词极有可能触碰了 Google Vertex AI 的高等级安全底线（如 NSFW、暴力、特定版权/真实人物等），导致图片被全额抹杀。"
-                # ---------------------------------------------
+                    final_content = "⚠️ **生成失败或被全额拦截**：API 未返回有效的图像数据。"
+                    
                 response_id = f"chatcmpl-imagen-{int(time.time())}"
 
                 if request.stream:
@@ -206,26 +186,24 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
             except Exception as e:
                 print(f"[Imagen 拦截器] 💥 发生致命错误: {str(e)}")
                 return JSONResponse(status_code=500, content=create_openai_error_response(500, str(e), "imagen_error"))
+
         # ==========================================
-        # ==========================================
-        # 核心：智能识别 image 并强制拦截
+        # 核心：智能识别 image 并配置
         # ==========================================
         is_image_model = "image" in request.model.lower()
         if is_image_model:
-            # 删掉下面这行，保留原始的生图模型名称！
-            # base_model_name = base_model_name.replace("-image", "").replace("_image", "") 
             is_openai_direct_model = False
+            
         gen_config_dict = create_generation_config(request)
 
         is_thinking_capable = "gemini-2.5" in base_model_name or "gemini-3" in base_model_name
-        is_lite_model = "flash-lite" in base_model_name
 
         if is_thinking_capable:
             if "thinking_config" not in gen_config_dict:
                 gen_config_dict["thinking_config"] = {}
             gen_config_dict["thinking_config"]["include_thoughts"] = True
 
-        if is_lite_model or is_image_model:
+        if is_image_model:
             if "thinking_config" not in gen_config_dict:
                 gen_config_dict["thinking_config"] = {}
             gen_config_dict["thinking_config"]["include_thoughts"] = False
@@ -284,33 +262,6 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
             else:
                 openai_handler = OpenAIDirectHandler(credential_manager=credential_manager_instance)
                 return await openai_handler.process_request(request, base_model_name, is_openai_search=is_openai_search_model)
-        elif is_auto_model:
-            attempts = [
-                {"name": "base", "model": base_model_name, "prompt_func": create_gemini_prompt, "config_modifier": lambda c: c},
-                {"name": "encrypt", "model": base_model_name, "prompt_func": create_encrypted_gemini_prompt, "config_modifier": lambda c: {**c, "system_instruction": ENCRYPTION_INSTRUCTIONS}},
-                {"name": "old_format", "model": base_model_name, "prompt_func": create_encrypted_full_gemini_prompt, "config_modifier": lambda c: c}
-            ]
-            last_err = None
-            for attempt in attempts:
-                current_gen_config_dict = attempt["config_modifier"](gen_config_dict.copy())
-                try:
-                    result = await execute_gemini_call(client_to_use, attempt["model"], attempt["prompt_func"], current_gen_config_dict, request, is_auto_attempt=True)
-                    return result
-                except Exception as e_auto:
-                    last_err = e_auto
-                    await asyncio.sleep(1)
-            
-            err_msg = f"All auto-mode attempts failed. Last error: {str(last_err)}"
-            if not request.stream and last_err:
-                 return JSONResponse(status_code=500, content=create_openai_error_response(500, err_msg, "server_error"))
-            elif request.stream:
-                async def final_auto_error_stream():
-                    err_content = create_openai_error_response(500, err_msg, "server_error")
-                    yield f"data: {json.dumps(err_content)}\n\n"
-                    yield "data: [DONE]\n\n"
-                return StreamingResponse(final_auto_error_stream(), media_type="text/event-stream")
-            return JSONResponse(status_code=500, content=create_openai_error_response(500, "All auto-mode attempts failed.", "server_error"))
-
         else: 
             current_prompt_func = create_gemini_prompt
 
@@ -321,31 +272,13 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 else:
                     gen_config_dict["tools"] = [search_tool]
             
-            elif is_encrypted_model:
-                current_prompt_func = create_encrypted_gemini_prompt
-            elif is_encrypted_full_model:
-                current_prompt_func = create_encrypted_full_gemini_prompt
-            
             if not isinstance(gen_config_dict.get("thinking_config"), dict):
                 gen_config_dict["thinking_config"] = {}
 
-            if is_lite_model or is_image_model:
+            if is_image_model:
                 gen_config_dict["thinking_config"]["include_thoughts"] = False
             else:
                 gen_config_dict["thinking_config"]["include_thoughts"] = True
-            
-            is_pro_model = "pro" in base_model_name 
-            
-            if is_thinking_capable:
-                if is_nothinking_model or is_max_thinking_model:
-                    if is_nothinking_model:
-                        budget = 128 if is_pro_model else 0
-                    else:  
-                        budget = 32768 if is_pro_model else 24576
-                    
-                    gen_config_dict["thinking_config"]["thinking_budget"] = budget
-                    if budget == 0:
-                        gen_config_dict["thinking_config"]["include_thoughts"] = False
 
             return await execute_gemini_call(client_to_use, base_model_name, current_prompt_func, gen_config_dict, request)
 
